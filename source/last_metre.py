@@ -21,6 +21,7 @@ STUCK_STEPS = 15      # this many coarse-turning decisions in a row = stuck: sca
 SCAN_TICKS = 2        # ticks turned per scan increment
 SCAN_MAX = 200        # safety cap on scan increments
 FOUND_FRACTION = 0.8  # after the scan, stop turning when front reaches 80% of its best
+SPREAD_DEG = 4.1      # check-in guard: matched points must agree within this (parallax check)
 
 
 def _focal_length(camera) -> float | None:
@@ -51,6 +52,7 @@ class LastMetre:
         self.coarse_steps, self.steady, self.lost = 0, 0, 0
         self.last_yaw, self.last_turn = None, Action.LEFT
         self.view, self.counts, self.yaw, self.scale = "?", [0, 0, 0, 0], None, None
+        self.spread = None
         self.status = "idle"
 
     def start(self, info) -> None:
@@ -86,6 +88,16 @@ class LastMetre:
         front_kp = self.targets[0][0]
         shifts = [front_kp[m.trainIdx].pt[0] - kp[m.queryIdx].pt[0] for m in front_matches]
         return math.degrees(math.atan(float(np.median(shifts)) / self.fx))
+
+    def _shift_spread(self, kp, front_matches) -> float:
+        """How much the matched points DISAGREE about the turn angle, in degrees
+        (middle 50% range). At the true goal, near and far points all line up: small.
+        Off to the side, near and far points shift by different amounts (parallax): large."""
+        front_kp = self.targets[0][0]
+        angles = [math.degrees(math.atan((front_kp[m.trainIdx].pt[0] - kp[m.queryIdx].pt[0]) / self.fx))
+                  for m in front_matches]
+        q25, q75 = np.percentile(angles, [25, 75])
+        return float(q75 - q25)
 
     def _scale_ratio(self, kp, front_matches) -> float:
         """Below 1 = things look smaller than in the front photo = too far. Above 1 = too close."""
@@ -206,9 +218,15 @@ class LastMetre:
         if need_turn:
             return self._go((turn, 1), f"right distance, turning {abs(self.yaw):.1f} deg {side}")
 
+        # Check-in guard: the average lines up, but do ALL the points agree?
+        self.spread = self._shift_spread(kp, front_matches)
+        if self.spread > SPREAD_DEG:
+            return self._go("LOST", f"lined up on average but points disagree "
+                                    f"(spread {self.spread:.1f} deg): probably off to the side")
+
         self.steady += 1
         if self.steady >= STEADY:
-            self.status = "AT THE GOAL: checking in"
+            self.status = f"AT THE GOAL (spread {self.spread:.1f} deg): checking in"
             return Action.CHECKIN
         self.status = f"lined up, size {self.scale:.2f}: confirming ({self.steady}/{STEADY})"
         return None

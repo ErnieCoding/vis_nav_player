@@ -46,6 +46,9 @@ class TestAgent(KeyboardAgent):
         if "space" in keys:
             return Action.CHECKIN
         move = self.lm.step(obs.image)
+        if move == "LOST":  # the module gives control back (navigation would take over)
+            self.auto = False
+            return WAIT
         if move == Action.CHECKIN and not AUTO_CHECKIN:
             self.lm.status = "READY: the module would check in now (press space)"
             return WAIT
