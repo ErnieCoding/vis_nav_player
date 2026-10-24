@@ -34,6 +34,31 @@ def _focal_length(camera) -> float | None:
             return float(value[0, 0])
     return None
 
+def which_side(near_votes, far_votes):
+    """given the turn votes (in degrees) from near points and far points, return 'right' if the robot is tot he right of the goal, 'left' if to the left if it's to the left"""
+    near_avg = np.mean(near_votes)
+    far_avg = np.mean(far_votes)
+    difference = near_avg - far_avg
+    if abs(difference) < 1:
+        return "unsure"
+    elif difference > 0:
+        return "right"
+    else:
+        return "left"
+
+def split_near_far(shifts, votes):
+    """shifts[i]: how many pixels point i moved between the two pictures.
+    votes[i]: point i's turn vote, in degrees
+    Returns (near_votes, far_votes)"""
+    middle = np.median(shifts)
+    near_votes = []
+    far_votes = []
+    for shift, vote in zip(shifts, votes):
+        if shift > middle:
+            near_votes.append(vote)
+        else:
+            far_votes.append(vote)
+    return near_votes, far_votes
 
 class LastMetre:
     def __init__(self, ratio: float = 0.75) -> None:
@@ -111,8 +136,12 @@ class LastMetre:
         return move
 
     # ---------- deciding ----------
-
-    def step(self, image):
+    def wants_control(self, image) -> bool:
+        """Can I see the goal clearly to take over from navigation? Returns True if I want control, False if not."""
+        self.look(image)
+        return True if max(self.counts) >= 20 else False
+    
+    def step(self, image, hint=None):
         """Look, then decide one move. Returns a move, Action.CHECKIN, or None (hold still)."""
         kp, des, matches = self.look(image)
 
