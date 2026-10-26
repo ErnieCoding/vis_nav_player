@@ -44,7 +44,7 @@ class VladRecognizer:
 class DinoRecognizer:
     """DINOv2 fingerprints. An upgrade for once the whole pipeline works with VLAD: same two
     methods, so swapping it in is one line in build_map.py and nav_agent.py. Needs torch,
-    which the default install does not have (see docs/navigation_guide.md, "Upgrades")."""
+    which the default install does not have (`uv sync --group rl-cuda` adds the CUDA build)."""
 
     def __init__(self, cache_dir: Path, model_name: str = "dinov2_vits14", device: str = "cuda"):
         self.cache_dir = Path(cache_dir)
