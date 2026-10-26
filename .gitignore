@@ -18,3 +18,4 @@ wheels/
 vis_nav_player.log
 .ruff_cache/
 .pytest_cache/
+/results/
