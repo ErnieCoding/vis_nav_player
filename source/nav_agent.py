@@ -25,7 +25,7 @@ from nav.follower import Follower
 from nav.localizer import Localizer
 from nav.matching import Matcher
 from nav.place_map import PlaceMap, build_place_map, map_file
-from nav.place_recognition import VladRecognizer
+from nav.place_recognition import RECOGNIZERS, make_recognizer
 from nav.planner import plan_path
 from vis_nav_sdk import WAIT, Action, Agent, Observation, SessionInfo, run
 
@@ -42,9 +42,9 @@ GOAL = (245, 177, 76)
 class NavAgent(Agent):
     # -- before the attempt: no clock, crashes cost nothing
 
-    def __init__(self, data_dir: Path) -> None:
-        path = map_file(data_dir)
-        self.recognizer = VladRecognizer(path.parent / "vlad")  # or DinoRecognizer, later
+    def __init__(self, data_dir: Path, recognizer: str = "vlad") -> None:
+        path = map_file(data_dir, recognizer)
+        self.recognizer = make_recognizer(recognizer, path.parent)
         self.matcher = Matcher()
         if path.exists():
             self.map = PlaceMap.load(path)
@@ -170,6 +170,7 @@ class NavAgent(Agent):
 if __name__ == "__main__":
     parser = cli.parser(__doc__)
     parser.add_argument("--data", default=None, help="exploration data folder")
+    parser.add_argument("--recognizer", choices=RECOGNIZERS, default="vlad", help="fingerprints")
     args = parser.parse_args()
-    agent = NavAgent(cli.exploration_data(args, args.data))
+    agent = NavAgent(cli.exploration_data(args, args.data), args.recognizer)
     run(agent, cli.challenge(args), **cli.run_options(args))

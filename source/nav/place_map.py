@@ -54,18 +54,21 @@ class PlaceMap:
         return pickle.loads(Path(path).read_bytes())
 
 
-def map_file(data_dir: Path) -> Path:
+def map_file(data_dir: Path, recognizer: str = "vlad") -> Path:
     """Where the map of this data folder lives: ``cache/<folder name>/place_map.pkl``
-    (``data/local-7`` -> ``cache/local-7/``, ``data/<challenge id>`` -> ``cache/<id>/``)."""
-    return Path("cache") / Path(data_dir).name / "place_map.pkl"
+    (``data/local-7`` -> ``cache/local-7/``, ``data/<challenge id>`` -> ``cache/<id>/``).
+    A map's fingerprints only work with the recognizer that made them, so each recognizer
+    has its own file: ``place_map.pkl`` for VLAD, ``place_map_dino.pkl`` for DINOv2."""
+    name = "place_map.pkl" if recognizer == "vlad" else f"place_map_{recognizer}.pkl"
+    return Path("cache") / Path(data_dir).name / name
 
 
 def add_route_edges(graph: nx.Graph, photos: list[Photo]) -> None:
     """Join each photo to the next photo of the same recorded drive."""
-    for i in range(len(photos)-1):
-        if photos[i].route == photos[i+1].route:
-            graph.add_edge(i, i+1, kind="route", weight=ROUTE_WEIGHT)
-    
+    for i in range(len(photos) - 1):
+        if photos[i].route == photos[i + 1].route:
+            graph.add_edge(i, i + 1, kind="route", weight=ROUTE_WEIGHT)
+
 
 def add_shortcut_edges(
     graph: nx.Graph,
@@ -188,7 +191,8 @@ def find_goal(
     supported = [j for j in score if has_support(j)] or list(score)
 
     supported.sort(key=score.get, reverse=True)
-    return supported[:keep]   
+    return supported[:keep]
+
 
 def build_place_map(data_dir: Path, recognizer, matcher: Matcher, every: int = 1) -> PlaceMap:
     """Photos -> fingerprints -> graph -> goal. Runs before the attempt, so it can be slow."""
@@ -208,7 +212,9 @@ def build_place_map(data_dir: Path, recognizer, matcher: Matcher, every: int = 1
     pieces = nx.number_connected_components(graph)
     print(f"the map is in {pieces} piece(s){'' if pieces == 1 else ': some routes never join'}")
 
-    goal_nodes = find_goal(split_goal_photo(data_dir), photos, fingerprints, recognizer, matcher, graph)
+    goal_nodes = find_goal(
+        split_goal_photo(data_dir), photos, fingerprints, recognizer, matcher, graph
+    )
     print(f"goal photos: {[photos[n].key for n in goal_nodes]}")
     print(f"built in {time.perf_counter() - t0:.0f} s")
     return PlaceMap(photos, fingerprints, graph, goal_nodes)

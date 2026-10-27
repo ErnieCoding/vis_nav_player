@@ -78,26 +78,28 @@ class Matcher:
         """How many matched pairs agree with one camera movement (RANSAC). 0 if too few pairs."""
         if len(points_a) < 8:
             return 0
-        
+
         matches = 0
         F, mask = cv2.findFundamentalMat(points_a, points_b, cv2.FM_RANSAC, 1.0, 0.99)
 
         if mask is None:
             return 0
-        
+
         for match in mask:
             if match == 1:
-                matches+=1
+                matches += 1
 
         return matches
 
-    def bearing_deg(self, points_now: np.ndarray, points_target: np.ndarray, fx: float, cx:int = 160) -> float:
+    def bearing_deg(
+        self, points_now: np.ndarray, points_target: np.ndarray, fx: float, cx: int = 160
+    ) -> float:
         """How many degrees to turn so that the target photo's view lines up with ours.
         Positive = turn LEFT, negative = turn RIGHT (the convention last_metre.py uses).
         ``fx`` is the camera's focal length in pixels (about 92 for this camera)."""
         if len(points_now) == 0:
             return 0.0
-        
+
         angle_diff = []
 
         for i in range(len(points_now)):

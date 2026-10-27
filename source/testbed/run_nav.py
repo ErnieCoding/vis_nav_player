@@ -31,17 +31,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # source/
 import numpy as np
 import vis_nav_sim as sim
 from nav.data import load_answer_key, photo_key
+from nav.place_recognition import RECOGNIZERS
 from vis_nav_sdk import Action
 from vis_nav_sdk.session import Camera, Limits, Observation, SessionInfo
 
 from testbed.tools import distance_m, make_world, parse_ints, record, rubric_points, server_like
 
 
-def make_agent(kind: str, data_dir: Path):
+def make_agent(kind: str, data_dir: Path, recognizer: str = "vlad"):
     if kind == "nav":
         from nav_agent import NavAgent
 
-        return NavAgent(data_dir)
+        return NavAgent(data_dir, recognizer)
     from my_agent import MyAgent
 
     return MyAgent(data_dir, cache_dir=Path("cache") / data_dir.name / "baseline")
@@ -144,6 +145,12 @@ def main() -> None:
     p.add_argument("--max-steps", type=int, default=10000, help="the step budget")
     p.add_argument("--bias", default=None, help="motion bias sigmas 'speed,turn,curve'")
     p.add_argument("--log", action="store_true", help="write every step to results/")
+    p.add_argument(
+        "--recognizer",
+        choices=RECOGNIZERS,
+        default="vlad",
+        help="fingerprints for --agent nav (the baseline always uses its own)",
+    )
     args = p.parse_args()
 
     bias = tuple(float(v) for v in args.bias.split(",")) if args.bias else None
@@ -159,7 +166,7 @@ def main() -> None:
         data_dir = record(args.size, seed)
         answer = load_answer_key(data_dir)
         try:
-            agent = make_agent(args.agent, data_dir)
+            agent = make_agent(args.agent, data_dir, args.recognizer)
         except Exception:
             traceback.print_exc()
             print(f"maze {seed}: the agent could not be built (see the error above)")

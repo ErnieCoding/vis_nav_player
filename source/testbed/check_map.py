@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # source/
 import networkx as nx
 from nav.data import load_answer_key
 from nav.place_map import PlaceMap, map_file
+from nav.place_recognition import RECOGNIZERS
 
 from testbed.tools import angle_deg, distance_m, load_truth, walking_cells
 
@@ -33,10 +34,11 @@ SHORTCUT_MAX_CELLS = 3  # 0.6 m of corridor. Two sides of a wall are 4+ cells ap
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("--data", required=True, help="a testbed folder, e.g. data/eval-21-3")
+    p.add_argument("--recognizer", choices=RECOGNIZERS, default="vlad", help="whose map")
     args = p.parse_args()
 
     data_dir = Path(args.data)
-    place_map = PlaceMap.load(map_file(data_dir))
+    place_map = PlaceMap.load(map_file(data_dir, args.recognizer))
     answer = load_answer_key(data_dir)
     truth = load_truth(data_dir)
     photos, graph = place_map.photos, place_map.graph

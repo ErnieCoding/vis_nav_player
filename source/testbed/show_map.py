@@ -27,6 +27,7 @@ import networkx as nx
 import numpy as np
 from nav.data import load_answer_key, read_image, split_goal_photo
 from nav.place_map import PlaceMap, map_file
+from nav.place_recognition import RECOGNIZERS
 
 from testbed.tools import load_truth
 
@@ -167,21 +168,23 @@ def draw_path_strip(place_map: PlaceMap, path: list[int], goal_front: np.ndarray
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("--data", required=True, help="a testbed folder, e.g. data/eval-21-3")
+    p.add_argument("--recognizer", choices=RECOGNIZERS, default="vlad", help="whose map")
     args = p.parse_args()
 
     data_dir = Path(args.data)
-    place_map = PlaceMap.load(map_file(data_dir))
+    place_map = PlaceMap.load(map_file(data_dir, args.recognizer))
     answer = load_answer_key(data_dir)
     truth = load_truth(data_dir)
     path = planned_path(place_map)
 
     out = Path("results")
     out.mkdir(exist_ok=True)
-    map_png = out / f"map_{data_dir.name}.png"
+    tag = data_dir.name if args.recognizer == "vlad" else f"{data_dir.name}_{args.recognizer}"
+    map_png = out / f"map_{tag}.png"
     cv2.imwrite(str(map_png), draw_map(place_map, answer, truth, path))
     print(f"saved {map_png}")
     if path:
-        strip = out / f"path_{data_dir.name}.jpg"
+        strip = out / f"path_{tag}.jpg"
         cv2.imwrite(str(strip), draw_path_strip(place_map, path, split_goal_photo(data_dir)[0]))
         print(f"saved {strip}")
     else:

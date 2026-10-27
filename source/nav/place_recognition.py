@@ -11,6 +11,8 @@ is used:
 
     VladRecognizer   the course baseline's RootSIFT + VLAD (vlad.py). Works now.
     DinoRecognizer   DINOv2, a pretrained neural network. Usually much better. Needs torch.
+
+Pick one with ``--recognizer vlad|dino`` on build_map.py, nav_agent.py and the testbed.
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ class VladRecognizer:
 
 class DinoRecognizer:
     """DINOv2 fingerprints. An upgrade for once the whole pipeline works with VLAD: same two
-    methods, so swapping it in is one line in build_map.py and nav_agent.py. Needs torch,
+    methods, so ``--recognizer dino`` switches every script over. Needs torch,
     which the default install does not have (`uv sync --group rl-cuda` adds the CUDA build)."""
 
     def __init__(self, cache_dir: Path, model_name: str = "dinov2_vits14", device: str = "cuda"):
@@ -73,6 +75,19 @@ class DinoRecognizer:
         #      out["x_norm_clstoken"] is one vector summarising the whole image. Start with it.
         #   4. Back to numpy, divide by its length (np.linalg.norm), return it.
         raise NotImplementedError("DinoRecognizer.describe")
+
+
+RECOGNIZERS = ("vlad", "dino")
+
+
+def make_recognizer(name: str, cache_dir: Path):
+    """The recognizer called ``name`` (one of RECOGNIZERS), caching under ``cache_dir/name``.
+    Every script takes ``--recognizer`` and builds it here."""
+    if name == "vlad":
+        return VladRecognizer(Path(cache_dir) / "vlad")
+    if name == "dino":
+        return DinoRecognizer(Path(cache_dir) / "dino")
+    raise ValueError(f"unknown recognizer {name!r}; choose from {RECOGNIZERS}")
 
 
 def most_similar(

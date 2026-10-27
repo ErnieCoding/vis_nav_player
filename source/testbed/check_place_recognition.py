@@ -25,7 +25,7 @@ import cv2
 import numpy as np
 from nav.data import load_answer_key, load_photos, read_image
 from nav.place_map import map_file
-from nav.place_recognition import VladRecognizer
+from nav.place_recognition import RECOGNIZERS, make_recognizer
 
 from testbed.tools import SAME_SPOT_DEG, SAME_SPOT_M
 
@@ -35,6 +35,7 @@ def main() -> None:
     p.add_argument("--data", required=True, help="a testbed folder, e.g. data/eval-21-3")
     p.add_argument("--every", type=int, default=1, help="keep one photo in this many")
     p.add_argument("--show", type=int, default=0, help="save this many wrong matches as images")
+    p.add_argument("--recognizer", choices=RECOGNIZERS, default="vlad", help="fingerprints")
     args = p.parse_args()
 
     data_dir = Path(args.data)
@@ -43,8 +44,8 @@ def main() -> None:
     poses = np.array([answer[photo.key] for photo in photos])  # (N, 3): x, y, yaw
     routes = np.array([photo.route for photo in photos])
 
-    # Swap in DinoRecognizer here (and in build_map.py, nav_agent.py) to compare.
-    recognizer = VladRecognizer(map_file(data_dir).parent / "vlad")
+    recognizer = make_recognizer(args.recognizer, map_file(data_dir).parent)
+    print(f"recognizer: {args.recognizer}")
     fingerprints = recognizer.fit(photos)
 
     # The answer key, for every pair of photos at once: same spot, different route?
