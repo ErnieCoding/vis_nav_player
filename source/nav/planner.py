@@ -8,16 +8,23 @@ has it built in.
 from __future__ import annotations
 
 import networkx as nx
+import math
 
 
 def plan_path(graph: nx.Graph, start: int, goal_nodes: list[int]) -> list[int]:
     """Node numbers from ``start`` to the nearest goal node, both included. ``[start]`` if
     ``start`` is a goal node; ``[]`` if no goal node can be reached from ``start``."""
-    # TODO: shortest path to the nearest goal node.
-    #   Option A: for each goal node g, try nx.shortest_path(graph, start, g, weight="weight")
-    #   and keep the path with the smallest total weight (nx.path_weight(graph, path,
-    #   "weight")). A goal in another piece of the map raises nx.NetworkXNoPath: skip it.
-    #   Option B (one call): nx.multi_source_dijkstra(graph, set(goal_nodes), target=start,
-    #   weight="weight") returns (length, path) from the NEAREST goal to start. Reverse that
-    #   path. It raises nx.NetworkXNoPath when none can be reached: return [].
-    raise NotImplementedError("plan_path")
+    best_path = []
+    best_weight = math.inf
+    for i in range(len(goal_nodes)):
+        try:
+            candidate_path = nx.shortest_path(graph, start, goal_nodes[i], weight="weight")
+            candidate_weight = nx.path_weight(graph, candidate_path, "weight")
+
+            if candidate_weight < best_weight:
+                best_path = candidate_path
+                best_weight = candidate_weight
+        except nx.NetworkXNoPath:
+            continue
+
+    return best_path

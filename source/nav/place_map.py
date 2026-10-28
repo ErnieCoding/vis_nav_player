@@ -191,7 +191,17 @@ def find_goal(
     supported = [j for j in score if has_support(j)] or list(score)
 
     supported.sort(key=score.get, reverse=True)
-    return supported[:keep]
+    return consistent_goals(graph, supported)[:keep]
+
+
+def consistent_goals(graph: nx.Graph, goal_nodes: list[int], max_hops: int = 12) -> list[int]:
+    """The goal photos close (in the map) to the best-ranked one. All goal photos show one
+    spot, so a well-matched photo far from the best is a look-alike elsewhere; keeping it
+    would let the planner head for the wrong place when that one happens to be nearer."""
+    if not goal_nodes:
+        return []
+    near = nx.single_source_shortest_path_length(graph, goal_nodes[0], cutoff=max_hops)
+    return [g for g in goal_nodes if g in near]
 
 
 def build_place_map(data_dir: Path, recognizer, matcher: Matcher, every: int = 1) -> PlaceMap:

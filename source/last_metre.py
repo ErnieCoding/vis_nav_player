@@ -21,6 +21,8 @@ STUCK_STEPS = 15      # this many coarse-turning decisions in a row = stuck: sca
 SCAN_TICKS = 2        # ticks turned per scan increment
 SCAN_MAX = 200        # safety cap on scan increments
 FOUND_FRACTION = 0.8  # after the scan, stop turning when front reaches 80% of its best
+RETURN_MAX = 60       # return phase: give up (LOST) after this many increments (~1 circle)
+MAX_SCANS = 1         # scans per takeover; needing another one means LOST
 SPREAD_DEG = 4.1      # check-in guard: matched points must agree within this (parallax check)
 
 
@@ -78,6 +80,7 @@ class LastMetre:
         self.last_yaw, self.last_turn = None, Action.LEFT
         self.view, self.counts, self.yaw, self.scale = "?", [0, 0, 0, 0], None, None
         self.spread = None
+        self.scans = 0
         self.status = "idle"
 
     def start(self, info) -> None:
@@ -189,6 +192,10 @@ class LastMetre:
 
     def _begin_scan(self, des, why):
         """Spin a full circle, remembering where the front photo matched best."""
+        if self.scans >= MAX_SCANS:  # a scan already failed here: let navigation re-localize
+            self.mode = "normal"
+            return self._go("LOST", f"{why}, and already scanned: giving control back")
+        self.scans += 1
         self.mode, self.scan_phase = "scan", "circle"
         self.scan_first = des  # the view we started from: seeing it again = full circle
         self.scan_first_n = 0 if des is None else len(des)
@@ -208,15 +215,18 @@ class LastMetre:
             if back_home or self.scan_i >= SCAN_MAX:
                 if self.scan_best < MIN_MATCHES:
                     self.mode, self.coarse_steps = "normal", 0
-                    return self._go(None, "scan done: front view not visible from here")
-                self.scan_phase = "return"
+                    return self._go("LOST", "scan done: front view not visible from here")
+                self.scan_phase, self.return_start = "return", self.scan_i
             return self._go((Action.RIGHT, SCAN_TICKS),
                             f"scanning 360: front {front} (best so far {self.scan_best})")
 
         # return phase: keep turning the same way until front is nearly as good as its best
-        if front >= FOUND_FRACTION * self.scan_best or self.scan_i >= 2 * SCAN_MAX:
+        if front >= FOUND_FRACTION * self.scan_best:
             self.mode, self.lost = "front", 0
             return self._fine_and_approach(kp, matches[0])
+        if self.scan_i - self.return_start >= RETURN_MAX:  # a full circle and still not found
+            self.mode = "normal"
+            return self._go("LOST", f"best direction not found again (best {self.scan_best})")
         return self._go((Action.RIGHT, SCAN_TICKS),
                         f"turning to best direction: front {front} of {self.scan_best}")
 

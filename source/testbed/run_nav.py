@@ -7,6 +7,7 @@ bias as well). One line per run, then a summary.
     uv run source/testbed/run_nav.py --agent baseline --mazes 3     # today's my_agent.py
     uv run source/testbed/run_nav.py --mazes 3,7,11                 # nav_agent.py
     uv run source/testbed/run_nav.py --mazes 3 --runs 3 --log       # every step to results/
+    uv run source/testbed/run_nav.py --mazes 555 --show             # watch it in the window
 
 Columns:
   outcome     checked in / out of steps / crashed (with the traceback above it)
@@ -34,6 +35,8 @@ from nav.data import load_answer_key, photo_key
 from nav.place_recognition import RECOGNIZERS
 from vis_nav_sdk import Action
 from vis_nav_sdk.session import Camera, Limits, Observation, SessionInfo
+from vis_nav_sdk.telemetry import Telemetry
+from vis_nav_sdk.viewer import Viewer
 
 from testbed.tools import distance_m, make_world, parse_ints, record, rubric_points, server_like
 
@@ -64,8 +67,11 @@ def cell(row: dict, key: str, width: int, spec: str) -> str:
     return f"{'-':>{width}}" if value is None else f"{value:>{width}{spec}}"
 
 
-def run_once(agent, world: sim.Simulator, max_steps: int, answer: dict, log: list) -> dict:
-    """One attempt, from the spawn until the agent checks in or the steps run out."""
+def run_once(
+    agent, world: sim.Simulator, max_steps: int, answer: dict, log: list, viewer=None
+) -> dict:
+    """One attempt, from the spawn until the agent checks in or the steps run out. With a
+    ``viewer``, every frame is drawn in the SDK's window, as in a real run."""
     info = SessionInfo(
         session_id="testbed",
         challenge={"id": "testbed", "name": f"maze {world.seed}"},
@@ -75,6 +81,9 @@ def run_once(agent, world: sim.Simulator, max_steps: int, answer: dict, log: lis
     )
     agent.setup(info)
     image = server_like(world.initial_frame(), world)
+    telemetry = Telemetry()
+    if viewer is not None:
+        viewer.attach(info)
     outcome, decisions, logged_step = "out of steps", 0, -1
     errors: list[float] = []
     handover = None
@@ -84,7 +93,15 @@ def run_once(agent, world: sim.Simulator, max_steps: int, answer: dict, log: lis
         if decisions > 4 * max_steps:
             outcome = "stuck waiting"  # WAIT forever without moving
             break
-        reply = agent.act(Observation(image, world.steps, max_steps - world.steps))
+        obs = Observation(image, world.steps, max_steps - world.steps)
+        if viewer is not None:
+            viewer.pump()
+            if viewer.closed:
+                outcome = "window closed"
+                break
+            viewer.update(obs, telemetry, agent)
+        reply = agent.act(obs)
+        action, ticks = reply if isinstance(reply, tuple) else (reply, 1)
 
         # What the agent believes about the frame it just saw, against the truth.
         if world.steps != logged_step:
@@ -103,12 +120,14 @@ def run_once(agent, world: sim.Simulator, max_steps: int, answer: dict, log: lis
                     "guess": guess,
                     "error_m": None if error is None else round(error, 3),
                     "mode": getattr(agent, "mode", ""),
+                    "move": "WAIT" if ticks <= 0 else f"{Action(int(action)).name} x{ticks}",
+                    "lm_status": getattr(getattr(agent, "lm", None), "status", ""),
+                    "nav_status": getattr(agent, "status", ""),
                 }
             )
         if handover is None and getattr(agent, "mode", None) == "last_metre":
             handover = world.distance_heading()
 
-        action, ticks = reply if isinstance(reply, tuple) else (reply, 1)
         if int(action) & int(Action.CHECKIN):
             outcome = "checked in"
             break
@@ -123,6 +142,10 @@ def run_once(agent, world: sim.Simulator, max_steps: int, answer: dict, log: lis
     distance, heading = world.distance_heading()
     arrived = outcome == "checked in" and distance <= 0.2 and heading <= 20
     spl = world.spl() if arrived else 0.0
+    if viewer is not None and not viewer.closed:
+        points = rubric_points(distance, heading, spl) if outcome == "checked in" else 0
+        verdict = "PARTIAL" if points else "FAILED"
+        viewer.hold(f"{verdict}: {outcome}, {distance:.2f} m, {heading:.0f} deg, {points}/10")
     return {
         "outcome": outcome,
         "dist": round(distance, 3),
@@ -145,6 +168,7 @@ def main() -> None:
     p.add_argument("--max-steps", type=int, default=10000, help="the step budget")
     p.add_argument("--bias", default=None, help="motion bias sigmas 'speed,turn,curve'")
     p.add_argument("--log", action="store_true", help="write every step to results/")
+    p.add_argument("--show", action="store_true", help="draw every frame in a window")
     p.add_argument(
         "--recognizer",
         choices=RECOGNIZERS,
@@ -154,6 +178,10 @@ def main() -> None:
     args = p.parse_args()
 
     bias = tuple(float(v) for v in args.bias.split(",")) if args.bias else None
+    viewer = None
+    if args.show:
+        viewer = Viewer(scale=2, title="vis-nav testbed")
+        viewer.open()
     out = Path("results")
     out.mkdir(exist_ok=True)
     rows = []
@@ -175,8 +203,10 @@ def main() -> None:
         for run in range(args.runs):
             world = make_world(args.size, seed, motion_seed=1000 + run, bias=bias)
             log: list = []
+            if viewer is not None:
+                agent.viewer = viewer
             try:
-                row = run_once(agent, world, args.max_steps, answer, log)
+                row = run_once(agent, world, args.max_steps, answer, log, viewer)
             except Exception as exc:
                 traceback.print_exc()
                 row = {"outcome": f"crashed: {type(exc).__name__}", "ticks": world.steps}
@@ -195,6 +225,8 @@ def main() -> None:
                     writer.writeheader()
                     writer.writerows(log)
 
+    if viewer is not None:
+        viewer.close()
     if rows:
         arrived = [r for r in rows if r.get("pts", 0) > 0]
         print(

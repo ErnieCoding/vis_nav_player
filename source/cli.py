@@ -59,6 +59,12 @@ def parser(description: str) -> argparse.ArgumentParser:
         "--no-browser", action="store_true", help="do not open the run's page on the site"
     )
     p.add_argument("--no-check", action="store_true", help="skip the pre-flight check")
+    p.add_argument(
+        "--max-steps",
+        type=int,
+        default=10_000,
+        help="step budget for --local runs (default 10000; a challenge sets its own)",
+    )
     return p
 
 
@@ -72,7 +78,7 @@ def challenge(args: argparse.Namespace) -> str:
 
 
 def run_options(args: argparse.Namespace) -> dict:
-    return {
+    options = {
         "api_key": args.api_key,
         "server": args.server,
         "viewer": True,
@@ -80,6 +86,11 @@ def run_options(args: argparse.Namespace) -> dict:
         "confirm": False if args.yes else None,
         "browser": False if args.no_browser else None,
     }
+    if args.local is not None:
+        # The SDK's local session defaults to a 60,000-step budget and no anti-aliasing;
+        # use the challenge's budget and render the way the server does.
+        options.update(max_steps=args.max_steps, msaa=4)
+    return options
 
 
 def exploration_data(args: argparse.Namespace, data_dir: str | None) -> Path:
@@ -116,7 +127,9 @@ def record_exploration_data(seed: int, dest: str | Path = "data") -> Path:
     except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from None
     print(f"recording exploration data for local maze {seed} into {path} ...", flush=True)
-    world = sim.Simulator(textures, seed, motion_noise=sim.DEFAULT_NOISE, motion_seed=seed)
+    world = sim.Simulator(
+        textures, seed, motion_noise=sim.DEFAULT_NOISE, motion_seed=seed, msaa=4
+    )  # msaa=4: anti-aliased like the server's frames, so photos match live frames
     summary = world.record(path, routes=3, seed=seed, capture_every=5)
     print(f"exploration data: {path} ({summary['frames']} frames on {summary['routes']} routes)")
     return path

@@ -23,7 +23,7 @@ import numpy as np
 STAY = 0.35  # predict: fraction of a node's belief that stays put per photo-length of motion
 TICKS_PER_PHOTO = 5  # recorded photos are about this many ticks apart
 TEMPERATURE = 0.02  # update: smaller = trust each single frame more.
-# VLAD similarities are small (best matches ~0.05-0.15); 
+# VLAD similarities are small (best matches ~0.05-0.15);
 # DINOv2's are larger, so retune it after switching.
 
 
@@ -54,12 +54,12 @@ class Localizer:
 
         num_rounds = max(1, round(ticks / TICKS_PER_PHOTO))
 
-        for _ in range(num_rounds): # over rounds
+        for _ in range(num_rounds):  # over rounds
             new_belief = np.zeros_like(self.belief)
 
-            for j in range(len(new_belief)): # over photos
+            for j in range(len(new_belief)):  # over photos
                 num_neighbors = len(self.neighbours[j])
-                if num_neighbors > 0: # if photo has neighbors, otherwise belief stays as is
+                if num_neighbors > 0:  # if photo has neighbors, otherwise belief stays as is
                     new_belief[j] += STAY * self.belief[j]
                     shared_belief = (1 - STAY) * self.belief[j] / num_neighbors
                     for k in self.neighbours[j]:
@@ -68,7 +68,6 @@ class Localizer:
                     new_belief[j] += self.belief[j]
 
             self.belief = new_belief
-
 
     def update(self, fingerprint: np.ndarray) -> None:
         """We see a new frame (here, its fingerprint): reweight the belief."""
@@ -82,7 +81,7 @@ class Localizer:
         likelihood = np.exp((similarity - similarity.max()) / TEMPERATURE)
 
         self.belief = self.belief * likelihood + 1e-12
-        self.belief = self.belief/sum(self.belief)
+        self.belief = self.belief / sum(self.belief)
 
     def estimate(self) -> tuple[int, float]:
         """``(best node, confidence)``: where we most likely are, and how sure we are (0..1)."""
@@ -91,7 +90,7 @@ class Localizer:
         #   confidence: how much belief sits on or next to it, e.g. belief[best] plus the
         #   belief of its neighbours. Near 1 = sure. Small = the belief is spread over several
         #   places: we are lost, so do not hand over to the last metre.
-        best_node = int(np.argmax(self.belief)) # photo with the highest belief
+        best_node = int(np.argmax(self.belief))  # photo with the highest belief
 
         confidence = self.belief[best_node] + self.belief[self.neighbours[best_node]].sum()
 
