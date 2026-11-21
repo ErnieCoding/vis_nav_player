@@ -21,6 +21,7 @@ class TestAgent(KeyboardAgent):
         self.lm = LastMetre()
         self.auto = False
         self._last_step = -1
+        self.hint = ""  # last message from the module when it gave control back
 
     def setup(self, info: SessionInfo) -> None:
         self.lm.start(info)
@@ -30,13 +31,16 @@ class TestAgent(KeyboardAgent):
         keys = self.viewer.keys() if self.viewer is not None else ()
         if "l" in keys and not self.auto:
             self.lm.reset()  # fresh start every handover
+            self.hint = ""  # clear the old hint
             self.auto = True
         if any(k in keys for k in ARROWS):
             self.auto = False
 
         if not self.auto:
             if obs.step != self._last_step:  # keep the display updated while you drive
-                self.lm.look(obs.image)
+                kp, _, matches = self.lm.look(obs.image)
+                # count front-view inliers live, so you can watch them while you drive
+                self.lm.inliers = self.lm._count_inliers(kp, self.lm.targets[0][0], matches[0])
                 self.lm.status = f"manual: best view {self.lm.view}"
                 self._last_step = obs.step
             return super().act(obs)
@@ -48,9 +52,11 @@ class TestAgent(KeyboardAgent):
         move = self.lm.step(obs.image)
         if move == "LOST":  # the module gives control back (navigation would take over)
             self.auto = False
+            self.hint = self.lm.status  # save it before manual mode overwrites status
             return WAIT
         if move == Action.CHECKIN and not AUTO_CHECKIN:
-            self.lm.status = "READY: the module would check in now (press space)"
+            self.auto = False  # stop calling step(), like the LOST branch
+            self.hint = "READY: at the goal, press space to check in"
             return WAIT
         return WAIT if move is None else move
 
@@ -62,6 +68,8 @@ class TestAgent(KeyboardAgent):
             f"mode: {mode}   press L to hand over",
             f"{self.lm.status}",
             f"matches  front {f}  left {l}  back {b}  right {r}   fine yaw {yaw}",
+            f"hint: {self.hint}" if self.hint else "hint: -",
+            "inliers (front): -" if self.lm.inliers is None else f"inliers (front): {self.lm.inliers}",
         ]
 
 
