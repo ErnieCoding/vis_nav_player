@@ -24,7 +24,8 @@ FOUND_FRACTION = 0.8  # after the scan, stop turning when front reaches 80% of i
 RETURN_MAX = 60       # return phase: give up (LOST) after this many increments (~1 circle)
 MAX_SCANS = 1         # scans per takeover; needing another one means LOST
 SPREAD_DEG = 4.1      # check-in guard: matched points must agree within this (parallax check)
-
+ATTEMPT_TICKS = 275   
+MIN_INLIERS = 10       #cut off, minimum of a certain number of inliers before checking in
 
 def _focal_length(camera) -> float | None:
     """Find the 3x3 intrinsic matrix K in the camera info and return its focal length."""
@@ -35,32 +36,6 @@ def _focal_length(camera) -> float | None:
         if isinstance(value, np.ndarray) and value.shape == (3, 3):
             return float(value[0, 0])
     return None
-
-def which_side(near_votes, far_votes):
-    """given the turn votes (in degrees) from near points and far points, return 'right' if the robot is tot he right of the goal, 'left' if to the left if it's to the left"""
-    near_avg = np.mean(near_votes)
-    far_avg = np.mean(far_votes)
-    difference = near_avg - far_avg
-    if abs(difference) < 1:
-        return "unsure"
-    elif difference > 0:
-        return "right"
-    else:
-        return "left"
-
-def split_near_far(shifts, votes):
-    """shifts[i]: how many pixels point i moved between the two pictures.
-    votes[i]: point i's turn vote, in degrees
-    Returns (near_votes, far_votes)"""
-    middle = np.median(shifts)
-    near_votes = []
-    far_votes = []
-    for shift, vote in zip(shifts, votes):
-        if shift > middle:
-            near_votes.append(vote)
-        else:
-            far_votes.append(vote)
-    return near_votes, far_votes
 
 class LastMetre:
     def __init__(self, ratio: float = 0.75) -> None:
@@ -81,7 +56,9 @@ class LastMetre:
         self.view, self.counts, self.yaw, self.scale = "?", [0, 0, 0, 0], None, None
         self.spread = None
         self.scans = 0
+        self.inliers = None
         self.status = "idle"
+        self.counter = 0
 
     def start(self, info) -> None:
         """Once per run: fingerprint the 4 goal photos and read the camera's focal length."""
@@ -101,7 +78,41 @@ class LastMetre:
         if des_a is None or des_b is None or len(des_a) < 2 or len(des_b) < 2:
             return []
         pairs = self.matcher.knnMatch(des_a, des_b, k=2)
-        return [p[0] for p in pairs if len(p) == 2 and p[0].distance < self.ratio * p[1].distance]
+        good = []
+        for pair in pairs:
+            if len(pair) != 2:          # knnMatch sometimes finds only 1 neighbour: skip it
+                continue
+            best, second = pair
+            if best.distance < self.ratio * second.distance:   # Lowe's ratio test
+                good.append(best)
+        return good
+    
+    def _count_inliers(self, kp, target_kp, matches):
+        if len(matches) < 10:
+            return 0
+
+        c_pt = []
+        g_pt = []
+
+        for m in matches:
+            #   get (x,y) of each of the matches from good list keypoints for camera image i.queryIdx store it into c_pos
+            c_pos = kp[m.queryIdx].pt
+            #   get (x,y) of each of the matches from good list keypoints for goal image i.trainIdx store it into g_pos
+            g_pos = target_kp[m.trainIdx].pt
+
+            c_pt.append(c_pos)
+            g_pt.append(g_pos)
+
+        c_pt = np.float32(c_pt)
+        g_pt = np.float32(g_pt)
+
+        H, is_inlier = cv2.findHomography(g_pt, c_pt, cv2.RANSAC, 5.0)
+
+        if H is None:
+            return 0 
+
+        return int(np.count_nonzero(is_inlier))
+
 
     def look(self, image):
         """Match the camera against the 4 goal photos (no decisions, no state changes)."""
@@ -146,6 +157,15 @@ class LastMetre:
     
     def step(self, image, hint=None):
         """Look, then decide one move. Returns a move, Action.CHECKIN, or None (hold still)."""
+
+        #add a plus 1 counter everytime this is called on 
+        self.counter +=1
+        #check with ATTEMPT_TICKS= 200 to see if it reached limit 
+        #if limit of ATTEMPT_TICKS=200
+        if self.counter >= ATTEMPT_TICKS:
+            return self._go("LOST", "Line it up closer then press 'L'")
+        #return LOST out of ticks for this attempt
+
         kp, des, matches = self.look(image)
 
         if self.mode == "scan":
@@ -235,6 +255,7 @@ class LastMetre:
     def _fine_and_approach(self, kp, front_matches):
         self.yaw = self._fine_heading(kp, front_matches)
         self.scale = self._scale_ratio(kp, front_matches)
+        self.inliers = self._count_inliers(kp, self.targets[0][0], front_matches)
         flipped = self.last_yaw is not None and self.yaw * self.last_yaw < 0  # overshot
         self.last_yaw = self.yaw
 
@@ -257,15 +278,18 @@ class LastMetre:
         if need_turn:
             return self._go((turn, 1), f"right distance, turning {abs(self.yaw):.1f} deg {side}")
 
+        if self.inliers < MIN_INLIERS:
+            return self._go("LOST", f"Might not be at goal spot. Move around until inlier count is at least {MIN_INLIERS} then press L")
+
         # Check-in guard: the average lines up, but do ALL the points agree?
         self.spread = self._shift_spread(kp, front_matches)
         if self.spread > SPREAD_DEG:
-            return self._go("LOST", f"lined up on average but points disagree "
-                                    f"(spread {self.spread:.1f} deg): probably off to the side")
+
+            return self._go("LOST", f"off to the side (spread {self.spread:.1f}deg): adjust, then press L")
 
         self.steady += 1
         if self.steady >= STEADY:
             self.status = f"AT THE GOAL (spread {self.spread:.1f} deg): checking in"
             return Action.CHECKIN
-        self.status = f"lined up, size {self.scale:.2f}: confirming ({self.steady}/{STEADY})"
+        self.status = f"lined up, size {self.scale:.2f}: confirming ({self.steady}/{STEADY}) inliers: {self.inliers}"
         return None
